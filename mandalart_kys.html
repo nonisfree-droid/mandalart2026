@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>영서 2026 만다르트</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, 'Apple SD Gothic Neo', sans-serif; background: #f5f4f0; min-height: 100vh; padding: 12px; }
+
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+header h1 { font-size: 15px; font-weight: 600; color: #2C2C2A; }
+.stats { display: flex; gap: 14px; }
+.stat { text-align: center; }
+.stat-num { font-size: 17px; font-weight: 600; color: #2C2C2A; }
+.stat-label { font-size: 10px; color: #888780; }
+
+/* 9x9 그리드 → 3x3 블록 */
+.manda-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+/* 각 3x3 블록 */
+.block {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 6px;
+}
+
+/* 각 셀 */
+.cell {
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 8px;
+  text-align: center;
+  line-height: 1.25;
+  padding: 2px;
+  transition: opacity .15s;
+  -webkit-tap-highlight-color: transparent;
+  overflow: hidden;
+  word-break: keep-all;
+}
+.cell.core-cell { font-size: 9px; font-weight: 700; }
+.cell.main-cell { font-size: 10px; font-weight: 700; }
+.cell.done { opacity: 1; }
+.cell.todo { opacity: 0.48; }
+.cell .ck { font-size: 8px; line-height: 1; margin-bottom: 1px; height: 9px; }
+
+/* 하단 패널 */
+.panel { margin-top: 10px; background: #fff; border-radius: 10px; padding: 12px; border: 0.5px solid #D3D1C7; }
+.panel-title { font-size: 13px; font-weight: 600; color: #2C2C2A; margin-bottom: 3px; }
+.panel-sub { font-size: 11px; color: #888780; }
+.bar-wrap { margin-top: 7px; background: #E8E7E3; border-radius: 3px; height: 4px; }
+.bar { height: 4px; border-radius: 3px; transition: width .4s; }
+
+.cat-rows { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+.cat-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.cat-name { width: 46px; color: #444441; flex-shrink: 0; }
+.cat-bar-wrap { flex: 1; background: #E8E7E3; border-radius: 3px; height: 5px; }
+.cat-bar { height: 5px; border-radius: 3px; }
+.cat-pct { width: 26px; text-align: right; color: #888780; font-size: 10px; }
+
+.btn-area { margin-top: 10px; display: flex; gap: 8px; }
+.btn { flex: 1; padding: 11px; border-radius: 8px; border: none; font-size: 13px; font-weight: 500; cursor: pointer; }
+.btn-save { background: #534AB7; color: #fff; }
+.btn-note { background: #fff; color: #534AB7; border: 1px solid #534AB7; }
+
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #2C2C2A; color: #fff; padding: 9px 18px; border-radius: 20px; font-size: 12px; opacity: 0; transition: opacity .3s; pointer-events: none; white-space: nowrap; z-index: 100; }
+.toast.show { opacity: 1; }
+
+.note-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); align-items: flex-end; justify-content: center; z-index: 200; }
+.note-modal.open { display: flex; }
+.note-box { background: #fff; border-radius: 16px 16px 0 0; padding: 18px; width: 100%; max-width: 480px; }
+.note-box h3 { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.note-box textarea { width: 100%; border: 0.5px solid #D3D1C7; border-radius: 8px; padding: 9px; font-size: 13px; resize: none; font-family: inherit; }
+.tag-row { display: flex; gap: 5px; margin-top: 7px; flex-wrap: wrap; }
+.tag { padding: 4px 9px; border-radius: 20px; font-size: 11px; cursor: pointer; border: 1px solid #D3D1C7; color: #888780; background: #fff; }
+.tag.sel { border-color: #534AB7; color: #534AB7; background: #EEEDFE; }
+.note-btn-row { display: flex; gap: 8px; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>영서 2026 만다르트</h1>
+  <div class="stats">
+    <div class="stat"><div class="stat-num" id="s-done">0</div><div class="stat-label">완료</div></div>
+    <div class="stat"><div class="stat-num" id="s-total">0</div><div class="stat-label">전체</div></div>
+    <div class="stat"><div class="stat-num" id="s-pct">0%</div><div class="stat-label">달성률</div></div>
+  </div>
+</header>
+
+<div class="manda-grid" id="grid"></div>
+
+<div class="panel" id="detail">
+  <div class="panel-title" id="d-title">셀을 눌러 실천 기록을 남겨보세요</div>
+  <div class="panel-sub" id="d-sub">완료한 항목을 탭하면 체크돼요</div>
+  <div class="bar-wrap"><div class="bar" id="d-bar" style="width:0%"></div></div>
+</div>
+
+<div class="panel">
+  <div class="panel-title" style="margin-bottom:0">카테고리별 진행률</div>
+  <div class="cat-rows" id="cat-rows"></div>
+</div>
+
+<div class="btn-area">
+  <button class="btn btn-note" onclick="openNote()">느낀 점 남기기</button>
+  <button class="btn btn-save" onclick="saveAll()">기록 저장</button>
+</div>
+
+<div class="note-modal" id="noteModal">
+  <div class="note-box">
+    <h3>오늘 느낀 점</h3>
+    <textarea id="noteText" rows="4" placeholder="오늘 실천하면서 느낀 점, 힘들었던 점, 뿌듯했던 점을 자유롭게 써주세요."></textarea>
+    <div class="tag-row">
+      <span class="tag" onclick="toggleTag(this)">뿌듯해</span>
+      <span class="tag" onclick="toggleTag(this)">힘들었어</span>
+      <span class="tag" onclick="toggleTag(this)">아쉬워</span>
+      <span class="tag" onclick="toggleTag(this)">성장한 것 같아</span>
+      <span class="tag" onclick="toggleTag(this)">평범한 하루</span>
+    </div>
+    <div class="note-btn-row">
+      <button class="btn" style="background:#F1EFE8;color:#2C2C2A" onclick="closeNote()">취소</button>
+      <button class="btn btn-save" onclick="confirmNote()">저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CAT = {
+  "연구":   { done:"#534AB7", bg:"#EEEDFE", text:"#26215C" },
+  "커리어": { done:"#185FA5", bg:"#E6F1FB", text:"#042C53" },
+  "건강":   { done:"#993C1D", bg:"#FAECE7", text:"#4A1B0C" },
+  "영어":   { done:"#854F0B", bg:"#FAEEDA", text:"#412402" },
+  "재테크": { done:"#3B6D11", bg:"#EAF3DE", text:"#173404" },
+  "취미":   { done:"#0F6E56", bg:"#E1F5EE", text:"#04342C" },
+  "관계":   { done:"#993556", bg:"#FBEAF0", text:"#4B1528" },
+  "일상":   { done:"#444441", bg:"#F1EFE8", text:"#2C2C2A" },
+  "중앙":   { done:"#BA7517", bg:"#FAC775", text:"#412402" },
+};
+
+// 블록 배치: [0=좌상 연구, 1=상 커리어, 2=우상 건강, 3=좌 영어, 4=중앙, 5=우 재테크, 6=좌하 취미, 7=하 관계, 8=우하 일상]
+const BLOCKS = [
+  { cat:"연구", cells:[
+    {id:"R-01",l:"세상에 기여+\n관심과 겹치는\n연구주제 선택"},
+    {id:"R-06",l:"연구노트\n매주 작성\n월마다 업로드"},
+    {id:"R-02",l:"올 한해 2026\nCHI를 목표로\n연구 계획 써서 하기"},
+    {id:"R-08",l:"큰 실험\n진행해보기\n(봄 학기)"},
+    {id:"CR",l:"연구",core:true},
+    {id:"R-03",l:"링크드인\n분기별\n업데이트"},
+    {id:"R-07",l:"HCI, AI 관련\n영어 원서 3,4권\n읽기"},
+    {id:"R-04",l:"내 분야 논문 섭렵\n다이어그램같은거\n만들기(인포그래픽)"},
+    {id:"R-05",l:"매달 HCI-UX\n관련 서적 읽고\n뇨에 넣기 - 브런치 작성"},
+  ]},
+  { cat:"재테크", cells:[
+    {id:"F-01",l:"월 5만원\n적립투자"},
+    {id:"F-02",l:"가계부 적기"},
+    {id:"F-03",l:"위기의 역사\n완독"},
+    {id:"F-04",l:"경제 기사\n읽기"},
+    {id:"CF",l:"재테크",core:true},
+    {id:"F-05",l:"충동구매 금지"},
+    {id:"F-06",l:"은경언니\n인스타 관리\n성실히"},
+    {id:"F-07",l:"실험 많이\n참여하기"},
+    {id:"F-08",l:"저축하고자 한\n자산은 건드리지\n않기"},
+  ]},
+  { cat:"건강", cells:[
+    {id:"H-01",l:"요가\n요가원 or\n커뮤니티 소속"},
+    {id:"H-08",l:"영양제 챙겨먹기\n(오메가3, 유산균\n종합비타민)"},
+    {id:"H-07",l:"매일 아침\n명상+모닝페이지\n20분"},
+    {id:"H-03",l:"운전\n사고내지않기"},
+    {id:"CH",l:"건강",core:true},
+    {id:"H-09",l:"물 하루에 3잔\n이상 마시기"},
+    {id:"H-04",l:"12시 이후로\n먹지 않으려고\n노력하기"},
+    {id:"H-02",l:"수면 6시간 이상"},
+    {id:"H-05",l:"스쿼트 & 플랭크"},
+  ]},
+  { cat:"취미", cells:[
+    {id:"L-01",l:"다른 나라 레시피\n10개 도전해보기"},
+    {id:"L-08",l:"카메라 구매"},
+    {id:"L-09",l:"라떼아트\n만들기"},
+    {id:"L-02",l:"연구"},
+    {id:"CL",l:"도전",core:true},
+    {id:"L-03",l:"재태크"},
+    {id:"L-04",l:"진짜 맛있다는\n음식점 예약해서\n가보기 (ex.모수)"},
+    {id:"L-05",l:"멋지고 아늑한\n집 만들기"},
+    {id:"L-06",l:"건강"},
+  ]},
+  { cat:"중앙", center:true, cells:[
+    {id:"MR",l:"연구",core:true,cat:"연구"},
+    {id:"MF",l:"재테크",core:true,cat:"재테크"},
+    {id:"MH",l:"건강",core:true,cat:"건강"},
+    {id:"ML",l:"도전",core:true,cat:"취미"},
+    {id:"MC",l:"슬기로운\n연구생활",main:true},
+    {id:"MT",l:"취미",core:true,cat:"취미"},
+    {id:"ME",l:"관계",core:true,cat:"관계"},
+    {id:"MP",l:"언어",core:true,cat:"영어"},
+    {id:"MK",l:"커리어",core:true,cat:"커리어"},
+  ]},
+  { cat:"취미", cells:[
+    {id:"T-01",l:"캠핑 3번 이상"},
+    {id:"T-02",l:"계절마다\n제철 식재료로\n밥 해먹기"},
+    {id:"T-03",l:"배낭 여행"},
+    {id:"T-04",l:"베이스 1곡\n완주"},
+    {id:"CT",l:"취미",core:true},
+    {id:"T-05",l:"여름\n스쿠버다이빙"},
+    {id:"T-06",l:"종추 10회 이상"},
+    {id:"T-07",l:"일상\n그림 그리기"},
+    {id:"T-08",l:"드럼"},
+  ]},
+  { cat:"관계", cells:[
+    {id:"REL-01",l:"먼저 베풀기"},
+    {id:"REL-02",l:"여행 자주 다니기!\n남자친구와도\n해외여행 꼭!"},
+    {id:"REL-03",l:"부모님과 여행\n1번 이상"},
+    {id:"REL-07",l:"언니 결혼\n준비 돕기"},
+    {id:"CREL",l:"관계",core:true},
+    {id:"REL-04",l:"새해&생일\n안부인사\n먼저 전하기"},
+    {id:"REL-05",l:"뇨끼 건강검진"},
+    {id:"REL-06",l:"봉사"},
+    {id:"REL-08",l:"고마움 전달하기"},
+  ]},
+  { cat:"영어", cells:[
+    {id:"E-03",l:"매일 출근 전\n30분 영어"},
+    {id:"E-04",l:"출퇴근 시간\n영어 듣기\n(라디오)"},
+    {id:"E-07",l:"대본 안보고\n발표하기 (3회)"},
+    {id:"E-05",l:"매일 단어 5개\n암기"},
+    {id:"CE",l:"언어",core:true},
+    {id:"E-06",l:"노션에 영어노트\n정리하기"},
+    {id:"E-08",l:"논문 멋진 문장\n아카이빙"},
+    {id:"E-01",l:"영어 스피킹\nOPIC AL"},
+    {id:"E-02",l:"영어 IELTS 7.5"},
+  ]},
+  { cat:"커리어", cells:[
+    {id:"K-01",l:"졸업 후 어떤\n일을 할지\n구체화하기"},
+    {id:"K-02",l:"박사 여부 결정\n(해외/국내 또한)"},
+    {id:"K-03",l:"실무자 커피챗\n혹은 만남\n5회 이상"},
+    {id:"K-04",l:"포폴 사이트\n만들기"},
+    {id:"CK",l:"커리어",core:true},
+    {id:"K-05",l:"세상에 필요한것,\n기여를 할 수\n있는것, 정말\n중요한 가치있는\n일 찾기"},
+    {id:"K-06",l:"외부 프로그램\n참여(산학 or\n강연???)"},
+    {id:"K-07",l:"실무자 모임,\n커뮤니티 참여"},
+    {id:"K-08",l:"물성을 다루는\n연구"},
+  ]},
+];
+
+// 3x3 그리드 배치 순서 (원본 이미지 기준)
+// 좌상=연구(0), 중상=재테크(1), 우상=건강(2)
+// 좌중=취미(3), 중중=중앙(4), 우중=취미(5)
+// 좌하=관계(6), 중하=언어(7), 우하=커리어(8)
+const GRID_ORDER = [0,1,2,3,4,5,6,7,8];
+
+let done = new Set();
+let noteText = '';
+let noteTags = [];
+
+function loadState() {
+  try {
+    const s = localStorage.getItem('mandalart2026');
+    if (s) done = new Set(JSON.parse(s));
+  } catch(e) {}
+}
+function saveState() {
+  localStorage.setItem('mandalart2026', JSON.stringify([...done]));
+}
+
+function render() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  GRID_ORDER.forEach(bi => {
+    const block = BLOCKS[bi];
+    const isCenter = block.center;
+    const cat = block.cat;
+    const c = CAT[cat] || CAT["연구"];
+
+    const blockDiv = document.createElement('div');
+    blockDiv.className = 'block';
+    blockDiv.style.background = isCenter ? '#FAC77566' : c.bg + 'aa';
+
+    block.cells.forEach(cell => {
+      const cellCat = cell.cat || cat;
+      const cc = CAT[cellCat] || c;
+      const isDone = done.has(cell.id);
+      const isCore = cell.core;
+      const isMain = cell.main;
+
+      const el = document.createElement('div');
+      el.className = 'cell' + (isMain?' main-cell':isCore?' core-cell':'') + (isDone?' done':' todo');
+
+      if (isMain) {
+        el.style.background = '#BA7517';
+        el.style.color = '#fff';
+        el.style.border = '2px solid #854F0B';
+      } else if (isCore) {
+        el.style.background = isDone ? cc.done : cc.done + '22';
+        el.style.color = isDone ? '#fff' : cc.done;
+        el.style.border = `1.5px solid ${cc.done}`;
+      } else {
+        el.style.background = isDone ? cc.done : '#fff';
+        el.style.color = isDone ? '#fff' : cc.text;
+        el.style.border = `0.5px solid ${cc.done}44`;
+      }
+
+      const ck = document.createElement('div');
+      ck.className = 'ck';
+      ck.textContent = isDone ? '✓' : '';
+      el.appendChild(ck);
+
+      const tx = document.createElement('div');
+      tx.style.whiteSpace = 'pre-line';
+      tx.style.overflow = 'hidden';
+      tx.textContent = cell.l;
+      el.appendChild(tx);
+
+      if (!isMain) el.addEventListener('click', () => tapCell(cell, cellCat));
+      blockDiv.appendChild(el);
+    });
+    grid.appendChild(blockDiv);
+  });
+  updateStats();
+  renderCatBars();
+}
+
+function tapCell(cell, cat) {
+  if (!cell.core) {
+    if (done.has(cell.id)) done.delete(cell.id);
+    else done.add(cell.id);
+    saveState();
+    render();
+  }
+  showDetail(cell, cat);
+}
+
+function showDetail(cell, cat) {
+  const cc = CAT[cat] || CAT["연구"];
+  const isDone = done.has(cell.id);
+  const block = BLOCKS.find(b => b.cells.some(c => c.id === cell.id));
+  let cd = 0, ct = 0;
+  if (block) block.cells.forEach(c => { if(!c.core&&!c.main){ct++;if(done.has(c.id))cd++;} });
+  const pct = ct ? Math.round(cd/ct*100) : 0;
+  document.getElementById('d-title').textContent = (isDone?'✓ ':'◯ ') + cell.l.replace(/\n/g,' ');
+  document.getElementById('d-title').style.color = isDone ? cc.done : '#2C2C2A';
+  document.getElementById('d-sub').textContent = `[${cat}] ${cd}/${ct} 완료 (${pct}%)`;
+  const bar = document.getElementById('d-bar');
+  bar.style.width = pct+'%';
+  bar.style.background = cc.done;
+}
+
+function updateStats() {
+  const all = BLOCKS.flatMap(b=>b.cells.filter(c=>!c.core&&!c.main));
+  const total = all.length;
+  const d = all.filter(c=>done.has(c.id)).length;
+  document.getElementById('s-done').textContent = d;
+  document.getElementById('s-total').textContent = total;
+  document.getElementById('s-pct').textContent = Math.round(d/total*100)+'%';
+}
+
+function renderCatBars() {
+  const cats = [
+    {name:"연구",   key:"연구"},
+    {name:"재테크", key:"재테크"},
+    {name:"건강",   key:"건강"},
+    {name:"도전",   key:"취미"},
+    {name:"취미",   key:"취미"},
+    {name:"관계",   key:"관계"},
+    {name:"언어",   key:"영어"},
+    {name:"커리어", key:"커리어"},
+  ];
+  const rows = document.getElementById('cat-rows');
+  rows.innerHTML = '';
+  const seen = new Set();
+  cats.forEach(({name, key}) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    const blockIdx = BLOCKS.findIndex(b => b.cat === key && !b.center);
+    if (blockIdx < 0) return;
+    const block = BLOCKS[blockIdx];
+    const cells = block.cells.filter(c=>!c.core&&!c.main);
+    const total = cells.length;
+    const d = cells.filter(c=>done.has(c.id)).length;
+    const pct = total ? Math.round(d/total*100) : 0;
+    const cc = CAT[key];
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.innerHTML = `<span class="cat-name">${name}</span><div class="cat-bar-wrap"><div class="cat-bar" style="width:${pct}%;background:${cc.done}"></div></div><span class="cat-pct">${pct}%</span>`;
+    rows.appendChild(row);
+  });
+}
+
+function openNote() { document.getElementById('noteModal').classList.add('open'); }
+function closeNote() { document.getElementById('noteModal').classList.remove('open'); }
+function confirmNote() {
+  noteText = document.getElementById('noteText').value;
+  noteTags = [...document.querySelectorAll('.tag.sel')].map(t=>t.textContent);
+  closeNote();
+  showToast('느낀 점이 저장됐어요');
+}
+function toggleTag(el) { el.classList.toggle('sel'); }
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+async function saveAll() {
+  const today = new Date().toISOString().split('T')[0];
+  const doneList = [...done];
+  const payload = {
+    date: today,
+    done: doneList,
+    note: noteText,
+    tags: noteTags,
+    total: BLOCKS.flatMap(b=>b.cells.filter(c=>!c.core&&!c.main)).length,
+    doneCount: doneList.length,
+  };
+  const WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL';
+  try {
+    await fetch(WEBHOOK_URL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    showToast('기록이 저장됐어요!');
+  } catch(e) {
+    showToast('저장됐어요 (로컬)');
+  }
+  saveState();
+}
+
+loadState();
+render();
+</script>
+</body>
+</html>
